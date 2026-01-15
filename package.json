@@ -1,0 +1,15 @@
+{
+  "name": "hardcord",
+  "private": true,
+  "packageManager": "pnpm@9.12.3",
+  "scripts": {
+    "dev": "pnpm -r dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "format": "prettier --write .",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3"
+  }
+}

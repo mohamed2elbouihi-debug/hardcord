@@ -1,0 +1,344 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ONLINE
+  IDLE
+  DND
+  OFFLINE
+}
+
+enum ChannelType {
+  TEXT
+  VOICE
+  DM
+  GROUP_DM
+}
+
+enum FriendRequestStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+enum NotificationType {
+  MESSAGE
+  MENTION
+  FRIEND_REQUEST
+  SYSTEM
+}
+
+model User {
+  id               String      @id @default(cuid())
+  email            String      @unique
+  passwordHash     String
+  username         String      @unique
+  displayName      String
+  avatarUrl        String?
+  bannerUrl        String?
+  bio              String?
+  status           UserStatus  @default(OFFLINE)
+  customStatus     String?
+  emailVerifiedAt  DateTime?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  sessions         Session[]
+  servers          Server[]    @relation("ServerOwner")
+  memberships      ServerMember[]
+  messages         Message[]
+  reactions        MessageReaction[]
+  notifications    Notification[]
+  friendRequestsSent FriendRequest[] @relation("FriendRequestSender")
+  friendRequestsReceived FriendRequest[] @relation("FriendRequestRecipient")
+  blocksInitiated  Block[]     @relation("Blocker")
+  blocksReceived   Block[]     @relation("Blocked")
+  dmParticipants   DmParticipant[]
+  auditLogs        AuditLog[]
+}
+
+model Session {
+  id              String   @id @default(cuid())
+  userId          String
+  refreshTokenHash String
+  ipAddress       String?
+  userAgent       String?
+  revokedAt       DateTime?
+  createdAt       DateTime @default(now())
+
+  user            User     @relation(fields: [userId], references: [id])
+}
+
+model VerificationToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model Server {
+  id        String   @id @default(cuid())
+  name      String
+  iconUrl   String?
+  bannerUrl String?
+  ownerId   String
+  createdAt DateTime @default(now())
+
+  owner     User     @relation("ServerOwner", fields: [ownerId], references: [id])
+  members   ServerMember[]
+  roles     Role[]
+  channels  Channel[]
+  invites   Invite[]
+  auditLogs AuditLog[]
+  categories ChannelCategory[]
+}
+
+model ServerMember {
+  id        String   @id @default(cuid())
+  serverId  String
+  userId    String
+  nickname  String?
+  joinedAt  DateTime @default(now())
+  mutedUntil DateTime?
+  timeoutUntil DateTime?
+
+  server    Server   @relation(fields: [serverId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+  roles     ServerMemberRole[]
+
+  @@unique([serverId, userId])
+}
+
+model ServerBan {
+  id        String   @id @default(cuid())
+  serverId  String
+  userId    String
+  reason    String?
+  createdAt DateTime @default(now())
+
+  server    Server   @relation(fields: [serverId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([serverId, userId])
+}
+
+model Role {
+  id        String   @id @default(cuid())
+  serverId  String
+  name      String
+  color     String?
+  position  Int      @default(0)
+  isDefault Boolean  @default(false)
+
+  server    Server   @relation(fields: [serverId], references: [id])
+  permissions RolePermission[]
+  members   ServerMemberRole[]
+  overwrites ChannelPermissionOverwrite[]
+}
+
+model RolePermission {
+  id        String  @id @default(cuid())
+  roleId    String
+  permission BigInt
+
+  role      Role    @relation(fields: [roleId], references: [id])
+}
+
+model ServerMemberRole {
+  id        String @id @default(cuid())
+  memberId  String
+  roleId    String
+
+  member    ServerMember @relation(fields: [memberId], references: [id])
+  role      Role @relation(fields: [roleId], references: [id])
+
+  @@unique([memberId, roleId])
+}
+
+model ChannelCategory {
+  id        String   @id @default(cuid())
+  serverId  String
+  name      String
+  position  Int      @default(0)
+
+  server    Server   @relation(fields: [serverId], references: [id])
+  channels  Channel[]
+}
+
+model Channel {
+  id        String      @id @default(cuid())
+  serverId  String?
+  categoryId String?
+  name      String
+  type      ChannelType @default(TEXT)
+  position  Int         @default(0)
+  createdAt DateTime    @default(now())
+
+  server    Server?     @relation(fields: [serverId], references: [id])
+  category  ChannelCategory? @relation(fields: [categoryId], references: [id])
+  messages  Message[]
+  overwrites ChannelPermissionOverwrite[]
+  dmParticipants DmParticipant[]
+}
+
+model ChannelPermissionOverwrite {
+  id        String  @id @default(cuid())
+  channelId String
+  roleId    String?
+  memberId  String?
+  allow     BigInt  @default(0)
+  deny      BigInt  @default(0)
+
+  channel   Channel @relation(fields: [channelId], references: [id])
+  role      Role?   @relation(fields: [roleId], references: [id])
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  channelId String
+  authorId  String
+  content   String
+  createdAt DateTime @default(now())
+  editedAt  DateTime?
+  deletedAt DateTime?
+  pinnedAt  DateTime?
+
+  channel   Channel  @relation(fields: [channelId], references: [id])
+  author    User     @relation(fields: [authorId], references: [id])
+  reactions MessageReaction[]
+  attachments Attachment[]
+  thread    Thread?
+
+  @@index([content], type: Gin)
+}
+
+model MessageReaction {
+  id        String   @id @default(cuid())
+  messageId String
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+
+  message   Message  @relation(fields: [messageId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([messageId, userId, emoji])
+}
+
+model Thread {
+  id        String   @id @default(cuid())
+  parentMessageId String @unique
+  channelId String
+  name      String
+  createdAt DateTime @default(now())
+
+  parentMessage Message @relation(fields: [parentMessageId], references: [id])
+  channel   Channel @relation(fields: [channelId], references: [id])
+}
+
+model Attachment {
+  id        String   @id @default(cuid())
+  messageId String
+  url       String
+  type      String
+  size      Int
+  filename  String
+  width     Int?
+  height    Int?
+
+  message   Message  @relation(fields: [messageId], references: [id])
+}
+
+model Invite {
+  id        String   @id @default(cuid())
+  serverId  String
+  code      String   @unique
+  expiresAt DateTime?
+  maxUses   Int?
+  uses      Int      @default(0)
+  createdById String
+  createdAt DateTime @default(now())
+
+  server    Server   @relation(fields: [serverId], references: [id])
+  creator   User     @relation(fields: [createdById], references: [id])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      NotificationType
+  data      Json
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  serverId  String
+  actorId   String
+  action    String
+  targetId  String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  server    Server   @relation(fields: [serverId], references: [id])
+  actor     User     @relation(fields: [actorId], references: [id])
+}
+
+model FriendRequest {
+  id          String   @id @default(cuid())
+  requesterId String
+  recipientId String
+  status      FriendRequestStatus @default(PENDING)
+  createdAt   DateTime @default(now())
+
+  requester   User     @relation("FriendRequestSender", fields: [requesterId], references: [id])
+  recipient   User     @relation("FriendRequestRecipient", fields: [recipientId], references: [id])
+
+  @@unique([requesterId, recipientId])
+}
+
+model Block {
+  id         String   @id @default(cuid())
+  blockerId  String
+  blockedId  String
+  createdAt  DateTime @default(now())
+
+  blocker    User     @relation("Blocker", fields: [blockerId], references: [id])
+  blocked    User     @relation("Blocked", fields: [blockedId], references: [id])
+
+  @@unique([blockerId, blockedId])
+}
+
+model DmParticipant {
+  id        String   @id @default(cuid())
+  channelId String
+  userId    String
+  joinedAt  DateTime @default(now())
+
+  channel   Channel  @relation(fields: [channelId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([channelId, userId])
+}
